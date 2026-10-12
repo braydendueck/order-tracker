@@ -251,9 +251,24 @@ function thumbs(o, big) {
   return `<span class="thumbs${big ? ' big' : ''}">${tile(im[0], o)}</span>`;
 }
 const PKG = '<svg class="pkg" viewBox="0 0 22 22" aria-hidden="true"><rect x="2" y="3.5" width="18" height="15.5" rx="2.6" fill="#c8995a"/><rect x="2" y="3.5" width="18" height="5" rx="2.2" fill="#ddb57c"/><rect x="9.2" y="3.5" width="3.6" height="15.5" fill="#7b5cf5"/><rect x="14.6" y="12.4" width="3.6" height="4.2" rx=".7" fill="#fff" opacity=".9"/></svg>';
+// Fill % by status and time (rounded to 5 for the CSS width classes):
+// waiting for details 0 (icon at start) · ordered 15–45 by time elapsed toward the expected date · shipped 50–70 · out for delivery 85 · delivered 100
+function progressPct(o) {
+  const st = o.status; if (!STEPS.includes(st)) return -1;
+  if (st === 'delivered') return 100;
+  if (st === 'out_for_delivery') return 85;
+  let f = null;
+  const start = o.orderDate || '', end = o.expectedEnd || o.expectedStart || '';
+  if (start && end) { const tot = dayDiff(end, start); f = tot > 0 ? Math.min(1, Math.max(0, dayDiff(today(), start) / tot)) : 1; }
+  else if (end) f = end <= today() ? 1 : 0;
+  if (st === 'shipped') return 50 + Math.round((f == null ? 0.5 : f) * 20);
+  if (!o.expectedStart) return 0;
+  return 15 + Math.round((f || 0) * 30);
+}
 function progress(o) {
-  const i = STEPS.indexOf(o.status); if (i < 0) return '';
-  return `<div class="prog p${i}" role="progressbar" aria-valuemin="0" aria-valuemax="3" aria-valuenow="${i}" aria-label="${esc(LABEL[o.status])}"><span class="pfill"></span>${PKG}<span class="prest"></span></div>`;
+  const pct = progressPct(o); if (pct < 0) return '';
+  const w = Math.round(pct / 5) * 5;
+  return `<div class="prog w${w}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${esc(LABEL[o.status])}"><span class="pfill"></span>${PKG}<span class="prest"></span></div>`;
 }
 
 // ---------- rendering ----------

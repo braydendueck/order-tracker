@@ -130,9 +130,9 @@ main{padding:0 16px 16px;max-width:640px;margin:0 auto}
 .prog{display:flex;align-items:center;gap:6px;height:22px}
 .prog .pfill{height:8px;border-radius:4px;background:var(--grad);flex:none;width:0}
 .prog .prest{height:8px;border-radius:4px;background:var(--track);flex:1;min-width:0}
-.prog.p0 .pfill{display:none}
-.prog.p1 .pfill{width:38%}.prog.p2 .pfill{width:66%}
-.prog.p3 .pfill{flex:1}.prog.p3 .prest{display:none}
+.prog.w0 .pfill{display:none}
+.prog.w5 .pfill{width:calc(5% - 1px)}.prog.w10 .pfill{width:calc(10% - 3px)}.prog.w15 .pfill{width:calc(15% - 4px)}.prog.w20 .pfill{width:calc(20% - 6px)}.prog.w25 .pfill{width:calc(25% - 7px)}.prog.w30 .pfill{width:calc(30% - 8px)}.prog.w35 .pfill{width:calc(35% - 10px)}.prog.w40 .pfill{width:calc(40% - 11px)}.prog.w45 .pfill{width:calc(45% - 13px)}.prog.w50 .pfill{width:calc(50% - 14px)}.prog.w55 .pfill{width:calc(55% - 15px)}.prog.w60 .pfill{width:calc(60% - 17px)}.prog.w65 .pfill{width:calc(65% - 18px)}.prog.w70 .pfill{width:calc(70% - 20px)}.prog.w75 .pfill{width:calc(75% - 21px)}.prog.w80 .pfill{width:calc(80% - 22px)}.prog.w85 .pfill{width:calc(85% - 24px)}.prog.w90 .pfill{width:calc(90% - 25px)}.prog.w95 .pfill{width:calc(95% - 27px)}
+.prog.w100 .pfill{flex:1}.prog.w100 .prest{display:none}
 .pkg{width:22px;height:22px;flex:none}
 .thumbs{position:relative;width:104px;height:104px;flex:none}
 .tile{position:absolute;inset:0;border-radius:18px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--edge),0 1px 3px rgba(0,0,0,.04)}
