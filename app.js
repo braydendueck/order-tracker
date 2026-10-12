@@ -69,7 +69,7 @@ function ago(ts) { if (!ts) return 'never'; const m = Math.round((Date.now() - t
 
 // ---------- data model ----------
 function normalize(o) {
-  const n = { id: o.id || uid() };
+  const n = { ...o, id: o.id || uid() }; // keep unknown/extra fields (priceWatch, links, …)
   for (const f of FIELDS) n[f] = o[f] == null ? (MONEY.has(f) ? null : f === 'lineItems' ? [] : '') : o[f];
   if (!Array.isArray(n.lineItems)) n.lineItems = []; if (!LABEL[n.status]) n.status = 'ordered'; for (const k of ['createdAt', 'updatedAt']) if (o[k]) n[k] = o[k]; return n; }
 function applyOps(data, ops) {
@@ -323,13 +323,37 @@ function etaText(o) {
   if (o.statusDate) return { cls: 'past', text: `${LABEL[o.status]} ${fmtDay(o.statusDate)}` };
   return { cls: 'past', text: LABEL[o.status] };
 }
+// ---------- price watch ----------
+const pwOf = x => (x && x.priceWatch && typeof x.priceWatch === 'object') ? x.priceWatch : null;
+function itemSaving(x) {
+  const pw = pwOf(x); if (!pw || pw.status !== 'dropped' || typeof x.price !== 'number') return 0;
+  const low = typeof pw.lowestPrice === 'number' ? pw.lowestPrice : pw.lastPrice;
+  return typeof low === 'number' && low < x.price ? Math.round((x.price - low) * (x.qty || 1) * 100) / 100 : 0;
+}
+function dropBadge(o, short) {
+  const li = (o.lineItems || []).filter(x => (pwOf(x) || {}).status === 'dropped'); if (!li.length) return '';
+  const save = li.reduce((t, x) => t + itemSaving(x), 0);
+  return `<span class="pdrop">${ic('tag')}Price dropped${save > 0 ? (short ? ` −${esc(fmtMoney(save))}` : ` · save ${esc(fmtMoney(save))}`) : ''}</span>`;
+}
+function watchLine(x) {
+  const pw = pwOf(x); if (!pw) return '';
+  const by = pw.claimBy ? `${pw.claimByEstimated ? '~' : ''}${fmtDay(pw.claimBy)}` : '';
+  const pr = [typeof pw.lastPrice === 'number' ? `Now ${fmtMoney(pw.lastPrice)}` : '', typeof pw.lowestPrice === 'number' && pw.lowestPrice !== pw.lastPrice ? `low ${fmtMoney(pw.lowestPrice)}` : ''].filter(Boolean).join(' · ');
+  let t, cls = '';
+  if (pw.status === 'dropped') { const sv = itemSaving(x); cls = 'drop'; t = [`Price dropped${sv > 0 ? ` · save ${fmtMoney(sv)}` : ''}`, pr, `${pw.claimRoute ? pw.claimRoute[0].toUpperCase() + pw.claimRoute.slice(1) : 'Claim'}${by ? ' by ' + by : ''}`].filter(Boolean).join(' · '); }
+  else if (pw.status === 'watching') t = [`Watching price${by ? ' until ' + by : ''}`, pr].filter(Boolean).join(' · ');
+  else if (pw.status === 'expired') t = `Price watch ended${by ? ' ' + by.replace('~', '') : ''}`;
+  else if (pw.status === 'unpriceable') t = `Price not tracked${pw.reason ? ' · ' + pw.reason : ''}`;
+  else return '';
+  return `<small class="pwatch ${cls}">${esc(t)}</small>`;
+}
 // Delivered / returned / refunded / cancelled: compact ~68px row (photo, logo + name, one short line, total).
 function compactRow(o) {
   const e = etaText(o);
   const item = (o.lineItems && o.lineItems[0] && o.lineItems[0].name) || o.items || '';
   const line = o.statusDate || !item ? e.text : `${LABEL[o.status]} · ${item}`;
   return `<div class="swipe" data-id="${esc(o.id)}"><article class="order compact st-${o.status}" data-id="${esc(o.id)}" tabindex="0" aria-label="${esc(o.retailer)}: ${esc(line)}">
-    ${thumbs(o)}<div class="ocol"><div class="ohead">${logo(o)}<span class="ret">${esc(shortName(o.retailer))}</span></div><div class="when past">${esc(line)}</div></div>
+    ${thumbs(o)}<div class="ocol"><div class="ohead">${logo(o)}<span class="ret">${esc(shortName(o.retailer))}</span>${dropBadge(o, true)}</div><div class="when past">${esc(line)}</div></div>
     <span class="rtotal">${typeof o.total === 'number' ? esc(money.format(o.total)) : ''}</span></article></div>`;
 }
 function card(o) {
@@ -338,7 +362,7 @@ function card(o) {
   const swipe = IN_TRANSIT.has(o.status);
   return `<div class="swipe${swipe ? ' can' : ''}" data-id="${esc(o.id)}">${swipe ? `<div class="swipe-act" aria-hidden="true">${ic('check')}<span>Delivered</span></div>` : ''}
     <article class="order st-${o.status}${IN_TRANSIT.has(o.status) ? ' transit' : ''}" data-id="${esc(o.id)}" tabindex="0" aria-label="${esc(o.retailer)}: ${esc(e.text)}">
-    <div class="ocol"><div class="ohead">${logo(o)}<span class="ret">${esc(shortName(o.retailer))}</span></div>
+    <div class="ocol"><div class="ohead">${logo(o)}<span class="ret">${esc(shortName(o.retailer))}</span>${dropBadge(o)}</div>
       <div class="when ${e.cls}">${esc(e.text)}</div>
       ${progress(o)}</div>
     ${thumbs(o)}
@@ -426,7 +450,7 @@ function renderDetail() {
   const li = o.lineItems || [];
   const itemsHtml = li.length ? li.map(x => {
     const th = `<span class="ithumb">${tile(isUrl(x.imageUrl) ? x.imageUrl : '', o)}</span>`;
-    const name = th + `<span class="iname">${x.qty > 1 ? `<b class="qty">${esc(x.qty)}×</b> ` : ''}${esc(x.name)}</span>`;
+    const name = th + `<span class="iname">${x.qty > 1 ? `<b class="qty">${esc(x.qty)}×</b> ` : ''}${esc(x.name)}${watchLine(x)}</span>`;
     const price = typeof x.price === 'number' ? `<span class="iprice">${esc(fmtMoney(x.price * (x.qty || 1)))}${x.qty > 1 ? `<small>${esc(fmtMoney(x.price))} each</small>` : ''}</span>` : '';
     return isUrl(x.url) ? `<a class="row item link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${name}${price}${ic('chevR', 'rx')}</a>` : `<div class="row item">${name}${price}</div>`;
   }).join('') : `<div class="row item"><span class="iname${o.items ? '' : ' muted'}">${o.items ? esc(o.items) : 'Items not listed'}</span></div>`;
@@ -582,7 +606,7 @@ function statusSheet(id, ctx) {
     ${acts}<div class="stlist group">${STATUSES.map(([k, l]) => `<button class="stbtn st-${k}${o.status === k ? ' cur' : ''}" data-setstatus="${k}" data-id="${esc(id)}"><span class="dot">${ic(ST_ICON[k])}</span>${esc(l)}${o.status === k ? ic('check', 'tick') : ''}</button>`).join('')}</div>`);
   if (ctx) { sheet.querySelector('.sheet').classList.add('ctx'); buzz(12); }
 }
-const liRow = (x = {}) => `<div class="lirow"><input name="li_name" placeholder="Item name" value="${esc(x.name || '')}" aria-label="Item name">
+const liRow = (x = {}, i) => `<div class="lirow"${Number.isInteger(i) ? ` data-i="${i}"` : ''}><input name="li_name" placeholder="Item name" value="${esc(x.name || '')}" aria-label="Item name">
   <div class="li2"><label><span>Qty</span><input name="li_qty" inputmode="numeric" value="${esc(x.qty || 1)}" aria-label="Quantity"></label><label><span>Price each</span><input name="li_price" inputmode="decimal" placeholder="—" value="${typeof x.price === 'number' ? x.price.toFixed(2) : ''}" aria-label="Price each"></label>
   <button type="button" class="iconbtn sm" data-act="rmline" aria-label="Remove item">${ic('x')}</button></div>
   <input name="li_url" type="url" inputmode="url" placeholder="https://product link (optional)" value="${esc(x.url || '')}" autocapitalize="off" spellcheck="false" aria-label="Product link">
@@ -608,7 +632,7 @@ function formSheet(id) {
     ${f('statusDate', 'Delivered / picked up / cancelled on', 'type="date"')}
     <label class="field" data-f="shipAddress"><span>Ship to</span><textarea name="shipAddress" rows="2" placeholder="Name, street, city">${esc(o.shipAddress)}</textarea></label>
     <div class="ghead">Line items</div>
-    <div id="lirows" data-f="lineItems">${o.lineItems.map(liRow).join('')}</div>
+    <div id="lirows" data-f="lineItems">${o.lineItems.map((x, i) => liRow(x, i)).join('')}</div>
     <button type="button" class="ghost full" data-act="addline">${ic('plus')}Add line item</button>
     <div class="ghead">Receipt</div>
     <div class="row3">${f('subtotal', 'Subtotal', 'inputmode="decimal" placeholder="—"')}${f('shipping', 'Shipping', 'inputmode="decimal" placeholder="—"')}${f('tax', 'Tax', 'inputmode="decimal" placeholder="—"')}</div>
@@ -648,7 +672,8 @@ function formSheet(id) {
       const g = n => r.querySelector(`[name=${n}]`).value.trim();
       const name = g('li_name'), qs = g('li_qty'), ps = g('li_price'), url = g('li_url'), imageUrl = g('li_image');
       if (!name && !ps && !url && !imageUrl) return;
-      const it = { name, qty: qs === '' ? 1 : Number(qs), price: parseTotal(ps), url, imageUrl };
+      const orig = r.dataset.i != null ? (o.lineItems || [])[+r.dataset.i] || {} : {};
+      const it = { ...orig, name, qty: qs === '' ? 1 : Number(qs), price: parseTotal(ps), url, imageUrl };
       if (imageUrl && !/^https:\/\/\S+$/i.test(imageUrl)) bad('', `“${name}”: photo link should start with https://`, r);
       if (!name) bad('', 'Each line item needs a name.', r);
       if (!Number.isInteger(it.qty) || it.qty < 1) bad('', `“${name}”: quantity should be a whole number.`, r);

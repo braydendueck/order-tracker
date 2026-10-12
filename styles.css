@@ -377,3 +377,13 @@ summary{cursor:pointer;min-height:40px;display:flex;align-items:center;color:var
   body.pushed #main,body.pushed .nav{transform:none;opacity:1}
 }
 .field select{padding-right:36px;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center/18px}
+/* price watch */
+.pdrop{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 7px 2px 5px;border-radius:999px;background:var(--ok-bg);color:var(--ok);font-size:11.5px;font-weight:700;white-space:nowrap;min-width:0;overflow:hidden;line-height:1.3}
+.pdrop .ic{width:12px;height:12px;stroke-width:2.2}
+.ohead .ret{flex:0 0 auto;min-width:auto;overflow:visible}
+.order .ocol{min-width:0}
+.pdrop{flex:0 1 auto;text-overflow:ellipsis}
+.pwatch{display:block;margin-top:3px;font-size:12.5px;line-height:1.35;color:var(--mut);font-weight:500}
+.pwatch.drop{color:var(--ok);font-weight:650}
+.order.compact .pdrop{padding:2px 7px;margin-left:2px}.order.compact .pdrop .ic{display:none}
+.order.compact .pdrop{font-size:11px;padding:2px 6px;margin-left:0;letter-spacing:-.1px}
