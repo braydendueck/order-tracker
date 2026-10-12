@@ -160,6 +160,32 @@ main{padding:0 16px 16px;max-width:640px;margin:0 auto}
 .st-refunded{--c:#a67c00;--cb:rgba(255,204,0,.16)}
 .st-cancelled{--c:var(--mut2);--cb:var(--fill)}
 
+/* ---- compact rows for finished orders + collapsible section ---- */
+.sechead.toggle{display:flex;align-items:center;gap:6px;width:calc(100% - 8px);border:0;background:none;padding:0 0 0 0;min-height:44px;text-align:left;font:inherit;font-size:15px;font-weight:600;color:var(--mut);margin:8px 4px 0}
+.sechead.toggle .n{font-weight:500;color:var(--mut2)}
+.sechead.toggle .ic{margin-left:auto;width:20px;height:20px;stroke-width:2.2;transform:rotate(-90deg);transition:transform .35s var(--spring)}
+.sechead.toggle.open .ic{transform:none}
+.sechead.toggle:active{opacity:.6}
+.collapse{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .42s var(--spring),opacity .3s var(--ease)}
+.collapse.open{grid-template-rows:1fr;opacity:1}
+.cinner{overflow:hidden;min-height:0}
+#rest{background:var(--card);border-radius:var(--r);border:1px solid var(--edge);box-shadow:var(--shadow);overflow:hidden;margin:4px 0 8px}
+#rest .swipe{margin:0;border-radius:0}
+#rest .swipe+.swipe::before{content:"";position:absolute;top:0;left:72px;right:0;height:.5px;background:var(--sep);z-index:1}
+.order.compact{min-height:68px;padding:12px 16px;gap:12px;border:0;border-radius:0;box-shadow:none}
+.order.compact:active,.order.compact.pressing{transform:none;background:var(--card2)}
+.order.compact .thumbs{width:44px;height:44px}
+.order.compact .tile{border-radius:12px}
+.order.compact .tile img{padding:4px}
+.order.compact .tfb{font-size:18px}
+.order.compact .thumbs.stack .tile{inset:3px 0 0 3px}.order.compact .thumbs.stack .tile.back{inset:0 3px 3px 0}
+.order.compact .logo{width:18px;height:18px;border-radius:9px}.order.compact .logo img{padding:2px}.order.compact .lfb{font-size:10px}
+.order.compact .ohead{gap:6px}
+.order.compact .ret{font-size:16px;font-weight:600}
+.order.compact .when{font-size:14px;line-height:19px;font-weight:400;color:var(--mut);margin:2px 0 0;-webkit-line-clamp:1}
+.rtotal{flex:none;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--txt)}
+.order.compact.st-cancelled .rtotal{color:var(--mut2);text-decoration:line-through}
+
 /* ---- skeleton + empty states ---- */
 .skelcard{background:var(--card);border-radius:var(--r);padding:16px 16px 16px 20px;margin-bottom:8px;display:flex;gap:16px;align-items:center;border:1px solid var(--edge)}
 .skelcard .sk-col{flex:1;display:flex;flex-direction:column;gap:12px}

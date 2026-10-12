@@ -5,7 +5,7 @@
 const API = 'https://api.github.com';
 const FILE = 'orders.json';
 const DEFAULT_REPO = 'braydendueck/order-tracker-data';
-const LS = { token: 'ot.token', repo: 'ot.repo', cache: 'ot.cache', pending: 'ot.pending' };
+const LS = { token: 'ot.token', repo: 'ot.repo', cache: 'ot.cache', pending: 'ot.pending', restOpen: 'ot.restOpen' };
 const STATUSES = [['ordered', 'Ordered'], ['shipped', 'Shipped'], ['out_for_delivery', 'Out for delivery'], ['delivered', 'Delivered'], ['returned', 'Returned'], ['refunded', 'Refunded'], ['cancelled', 'Cancelled']];
 const LABEL = Object.fromEntries(STATUSES);
 const IN_TRANSIT = new Set(['ordered', 'shipped', 'out_for_delivery']);
@@ -323,7 +323,17 @@ function etaText(o) {
   if (o.statusDate) return { cls: 'past', text: `${LABEL[o.status]} ${fmtDay(o.statusDate)}` };
   return { cls: 'past', text: LABEL[o.status] };
 }
+// Delivered / returned / refunded / cancelled: compact ~68px row (photo, logo + name, one short line, total).
+function compactRow(o) {
+  const e = etaText(o);
+  const item = (o.lineItems && o.lineItems[0] && o.lineItems[0].name) || o.items || '';
+  const line = o.statusDate || !item ? e.text : `${LABEL[o.status]} · ${item}`;
+  return `<div class="swipe" data-id="${esc(o.id)}"><article class="order compact st-${o.status}" data-id="${esc(o.id)}" tabindex="0" aria-label="${esc(o.retailer)}: ${esc(line)}">
+    ${thumbs(o)}<div class="ocol"><div class="ohead">${logo(o)}<span class="ret">${esc(shortName(o.retailer))}</span></div><div class="when past">${esc(line)}</div></div>
+    <span class="rtotal">${typeof o.total === 'number' ? esc(money.format(o.total)) : ''}</span></article></div>`;
+}
 function card(o) {
+  if (!IN_TRANSIT.has(o.status)) return compactRow(o);
   const e = etaText(o);
   const swipe = IN_TRANSIT.has(o.status);
   return `<div class="swipe${swipe ? ' can' : ''}" data-id="${esc(o.id)}">${swipe ? `<div class="swipe-act" aria-hidden="true">${ic('check')}<span>Delivered</span></div>` : ''}
@@ -333,6 +343,15 @@ function card(o) {
       ${progress(o)}</div>
     ${thumbs(o)}
   </article></div>`;
+}
+const restOpen = () => !!(S.q || S.filter !== 'all' || localStorage.getItem(LS.restOpen) === '1');
+function toggleRest() {
+  if (S.q || S.filter !== 'all') return; // always open while searching / filtering
+  const open = localStorage.getItem(LS.restOpen) !== '1';
+  localStorage.setItem(LS.restOpen, open ? '1' : '0'); buzz(4);
+  const w = $('#restwrap'), h = main.querySelector('[data-act=togglerest]'); if (!w || !h) return;
+  w.classList.toggle('open', open); h.classList.toggle('open', open); h.setAttribute('aria-expanded', String(open));
+  const inner = w.querySelector('.cinner'); if (open) inner.removeAttribute('inert'); else inner.setAttribute('inert', '');
 }
 function matches(o, q) {
   if (!q) return true;
@@ -371,7 +390,8 @@ function renderList() {
     ${!S.loaded ? skeleton() : ''}
     ${S.loaded && !shown.length ? emptyState(all.length) : ''}
     ${transit.length ? `<h2 class="sechead">On the way</h2><div id="transit">${transit.map(card).join('')}</div>` : ''}
-    ${rest.length ? `<h2 class="sechead">Delivered &amp; other</h2><div id="rest">${rest.map(card).join('')}</div>` : ''}`;
+    ${rest.length ? (() => { const open = restOpen(); return `<button class="sechead toggle${open ? ' open' : ''}" data-act="togglerest" aria-expanded="${open}" aria-controls="restwrap"><span>Delivered &amp; other</span><span class="n">${rest.length}</span>${ic('chevD')}</button>
+      <div id="restwrap" class="collapse${open ? ' open' : ''}"><div class="cinner"${open ? '' : ' inert'}><div id="rest">${rest.map(card).join('')}</div></div></div>`; })() : ''}`;
   if (activeEl) { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   onScroll();
 }
@@ -714,6 +734,7 @@ document.addEventListener('click', e => {
   if (t.closest('.sheet.ctx') && act !== 'close' && act !== 'edit') closeSheet();
   if (act === 'open') return openDetail(id);
   if (act === 'togglesearch') return toggleSearch();
+  if (act === 'togglerest') return toggleRest();
   if (act === 'detailback') return closeDetail();
   if (act === 'status') return statusSheet(id);
   if (act === 'next') { const o = current().find(x => x.id === id); return o && setStatus(id, NEXT[o.status]); }
