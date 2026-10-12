@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#111418">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Orders">
@@ -16,19 +17,21 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="top">
- <div class="toprow">
-  <div class="brand">Orders</div>
+<header class="nav" id="nav">
+ <div class="navrow">
+  <span id="syncstate" class="syncstate" aria-live="polite"></span>
+  <div class="navtitle" id="navtitle">Orders</div>
   <div class="topr">
-    <span id="syncstate" class="syncstate" aria-live="polite"></span>
-    <button id="btnRefresh" class="iconbtn" aria-label="Refresh" title="Refresh">&#x21bb;</button>
-    <button id="btnSettings" class="iconbtn" aria-label="Settings" title="Settings">&#x2699;</button>
+    <button id="btnRefresh" class="iconbtn" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+    <button id="btnSettings" class="iconbtn" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </div>
  </div>
  <div id="banner" class="banner" hidden></div>
 </header>
+<div id="ptr" class="ptr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></div>
 <main id="main"></main>
-<div id="addbar" class="addbar" hidden><button id="btnAdd" class="primary">+ Add order</button></div>
+<div id="addbar" class="addbar" hidden><button id="btnAdd" class="primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add order</button></div>
+<div id="page" class="page" hidden></div>
 <div id="sheet" class="sheetwrap" hidden></div>
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>

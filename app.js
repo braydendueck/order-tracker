@@ -11,7 +11,11 @@ const LABEL = Object.fromEntries(STATUSES);
 const IN_TRANSIT = new Set(['ordered', 'shipped', 'out_for_delivery']);
 const NEXT = { ordered: 'shipped', shipped: 'out_for_delivery', out_for_delivery: 'delivered' };
 const NOT_SPENT = new Set(['cancelled', 'returned', 'refunded']);
-const FIELDS = ['retailer', 'items', 'orderDate', 'total', 'orderNumber', 'status', 'carrier', 'trackingUrl', 'expectedStart', 'expectedEnd', 'expectedWindow', 'statusDate', 'notes'];
+const FIELDS = ['retailer', 'items', 'orderDate', 'total', 'orderNumber', 'status', 'carrier', 'trackingUrl', 'expectedStart', 'expectedEnd', 'expectedWindow', 'statusDate', 'notes',
+  'lineItems', 'subtotal', 'shipping', 'tax', 'paymentBrand', 'paymentLast4', 'shipAddress', 'productUrl', 'emailLink'];
+const MONEY = new Set(['total', 'subtotal', 'shipping', 'tax']);
+const STEPS = ['ordered', 'shipped', 'out_for_delivery', 'delivered'];
+const BRANDS = ['Visa', 'Mastercard', 'American Express', 'Interac', 'PayPal', 'Apple Pay', 'Google Pay', 'Gift card', 'Amazon balance'];
 const CARRIERS = ['Canada Post', 'Purolator', 'UPS', 'FedEx', 'DHL', 'Canpar', 'Intelcom', 'Amazon', 'Instacart', 'Store pickup'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -25,7 +29,7 @@ const S = {
   token: localStorage.getItem(LS.token) || '',
   repo: localStorage.getItem(LS.repo) || DEFAULT_REPO,
   base: { version: 1, orders: [] }, sha: null, syncedAt: null, loaded: false,
-  pending: [], view: 'list', filter: 'all', q: '', month: null,
+  pending: [], view: 'list', filter: 'all', q: '', month: null, detail: null,
   net: 'idle', // idle | loading | saving | offline | error
   problem: null, // {kind, msg}
 };
@@ -64,7 +68,10 @@ function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.h
 function ago(ts) { if (!ts) return 'never'; const m = Math.round((Date.now() - ts) / 6e4); if (m < 1) return 'just now'; if (m < 60) return `${m} min ago`; const h = Math.round(m / 60); if (h < 24) return `${h} h ago`; return new Date(ts).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }); }
 
 // ---------- data model ----------
-function normalize(o) { const n = { id: o.id || uid() }; for (const f of FIELDS) n[f] = o[f] == null ? (f === 'total' ? null : '') : o[f]; if (!LABEL[n.status]) n.status = 'ordered'; for (const k of ['createdAt', 'updatedAt']) if (o[k]) n[k] = o[k]; return n; }
+function normalize(o) {
+  const n = { id: o.id || uid() };
+  for (const f of FIELDS) n[f] = o[f] == null ? (MONEY.has(f) ? null : f === 'lineItems' ? [] : '') : o[f];
+  if (!Array.isArray(n.lineItems)) n.lineItems = []; if (!LABEL[n.status]) n.status = 'ordered'; for (const k of ['createdAt', 'updatedAt']) if (o[k]) n[k] = o[k]; return n; }
 function applyOps(data, ops) {
   const out = clone(data || { version: 1, orders: [] }); out.orders = (out.orders || []).map(normalize);
   for (const op of ops) {
@@ -189,8 +196,42 @@ function remove(id) {
 function setStatus(id, status) {
   const o = current().find(x => x.id === id); if (!o || o.status === status) return;
   change(id, { status, statusDate: status === 'ordered' ? '' : today() });
-  toast(`${o.retailer}: ${LABEL[status]}`);
+  buzz(); toast(`${o.retailer}: ${LABEL[status]}`);
 }
+
+// ---------- icons, motion, haptics ----------
+const I = {
+  chevL: '<path d="M15 18l-6-6 6-6"/>', chevR: '<path d="M9 6l6 6-6 6"/>', chevD: '<path d="M7 10l5 5 5-5"/>',
+  bag: '<path d="M5 8h14l-1.2 12.2a1 1 0 0 1-1 .8H7.2a1 1 0 0 1-1-.8z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>',
+  box: '<path d="M21 7.5l-9-4.5-9 4.5v9l9 4.5 9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9M7.5 5.2l9 4.6"/>',
+  truck: '<path d="M2.5 6.5h11v9.5h-11zM13.5 9.5h4.2l3.3 3.3v3.2h-7.5"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
+  home: '<path d="M4 10.5L12 4l8 6.5V20H4z"/><path d="M9.5 20v-5.5h5V20"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  refund: '<circle cx="12" cy="12" r="9"/><path d="M14.8 9.3c-.5-.9-1.5-1.4-2.8-1.4-1.6 0-2.7.8-2.7 2s1 1.7 2.7 2.1 2.7.9 2.7 2.1-1.1 2-2.7 2c-1.4 0-2.4-.6-2.9-1.5M12 6v12"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/>',
+  ext: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+  card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19M6.5 15h4"/>',
+  pin: '<path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  edit: '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14.5 7.5l3 3"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
+  alert: '<path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.2v.3"/>',
+  tag: '<path d="M3.5 12.5V4h8.5l9 9-8.5 8.5z"/><circle cx="8" cy="8.5" r="1.4"/>',
+  inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1.5 2.5h5L16 13h5"/>',
+};
+const ic = (n, cls = '') => `<svg class="ic${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+const ST_ICON = { ordered: 'bag', shipped: 'box', out_for_delivery: 'truck', delivered: 'home', returned: 'undo', refunded: 'refund', cancelled: 'ban' };
+const reduced = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function buzz(ms = 10) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* not supported (iOS) */ } }
+function avatar(name, big) {
+  const s = String(name || '?'); const letter = (s.match(/[A-Za-z0-9]/) || ['?'])[0].toUpperCase();
+  let h = 0; for (const c of s.toLowerCase().replace(/\s*\(.*$/, '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `<span class="av av${h % 6}${big ? ' big' : ''}" aria-hidden="true">${esc(letter)}</span>`;
+}
+const fmtMoney = n => typeof n === 'number' ? money.format(n) : '';
 
 // ---------- rendering ----------
 function renderChrome() {
@@ -206,62 +247,85 @@ function renderChrome() {
   else if (S.syncedAt) txt = 'Synced';
   ss.className = 'syncstate ' + cls; ss.textContent = txt;
   $('#btnRefresh').hidden = !S.token; $('#btnSettings').hidden = !S.token;
+  $('#btnRefresh').classList.toggle('spin', S.net === 'loading' || S.net === 'saving');
   $('#btnSettings').classList.toggle('on', S.view === 'settings');
+  $('#navtitle').textContent = !S.token || S.view === 'setup' ? 'Connect' : S.view === 'settings' ? 'Settings' : 'Orders';
   const showAdd = !!S.token && S.view === 'list';
   $('#addbar').hidden = !showAdd; document.body.classList.toggle('noadd', !showAdd);
   const b = $('#banner');
   const p = S.problem;
   if (!S.token || !p) { b.hidden = true; return; }
   b.hidden = false; b.className = 'banner' + (p.kind === 'offline' ? '' : ' err');
-  if (p.kind === 'offline') b.innerHTML = `<span>Offline. Showing the copy saved ${esc(ago(S.syncedAt))}.${n ? ' Your changes will save when you are back online.' : ''}</span><button data-act="retry">Retry</button>`;
-  else if (p.kind === 'auth' || p.kind === 'norepo' || p.kind === 'forbidden') b.innerHTML = `<span>${esc(p.msg)}${n ? ` ${n} change(s) are kept on this phone.` : ''}</span><button data-act="newtoken">New token</button>`;
-  else b.innerHTML = `<span>${esc(p.msg)}</span><button data-act="retry">Retry</button>`;
+  const icn = ic(p.kind === 'offline' ? 'clock' : 'alert');
+  if (p.kind === 'offline') b.innerHTML = `${icn}<span>Offline. Showing the copy saved ${esc(ago(S.syncedAt))}.${n ? ' Your changes will save when you are back online.' : ''}</span><button data-act="retry">Retry</button>`;
+  else if (p.kind === 'auth' || p.kind === 'norepo' || p.kind === 'forbidden') b.innerHTML = `${icn}<span>${esc(p.msg)}${n ? ` ${n} change(s) are kept on this phone.` : ''}</span><button data-act="newtoken">New token</button>`;
+  else b.innerHTML = `${icn}<span>${esc(p.msg)}</span><button data-act="retry">Retry</button>`;
 }
 function render() {
   renderChrome();
+  if (S.detail) renderDetail();
   if (!S.token || S.view === 'setup') return renderSetup();
   if (S.view === 'settings') return renderSettings();
   renderList();
 }
-function whenLine(o) {
+function etaText(o) {
   const t = today();
   if (IN_TRANSIT.has(o.status)) {
-    if (!o.expectedStart) return `<div class="when">${o.expectedWindow ? 'Delivery ' + esc(o.expectedWindow) : 'No delivery date yet'}</div>`;
+    if (!o.expectedStart) return { cls: '', html: o.expectedWindow ? 'Delivery ' + esc(o.expectedWindow) : 'No delivery date yet' };
     const end = o.expectedEnd || o.expectedStart, win = o.expectedWindow ? `, ${esc(o.expectedWindow)}` : '';
-    if (end < t) return `<div class="when late">Late: expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${win}</div>`;
-    if (o.expectedStart === t && end === t) return `<div class="when today">Arriving today${win}</div>`;
-    if (o.expectedStart <= t) return `<div class="when today">Arriving by ${esc(fmtDay(end, { dow: true }))}${win}</div>`;
+    if (end < t) return { cls: 'late', html: `Late: expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${win}` };
+    if (o.expectedStart === t && end === t) return { cls: 'today', html: `Arriving today${win}` };
+    if (o.expectedStart <= t) return { cls: 'today', html: `Arriving by ${esc(fmtDay(end, { dow: true }))}${win}` };
     const d = dayDiff(o.expectedStart, t);
     const rel = d === 1 && end === o.expectedStart ? 'tomorrow' : `in ${d} day${d > 1 ? 's' : ''}`;
-    return `<div class="when">Expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${win} <span class="muted">(${rel})</span></div>`;
+    return { cls: '', html: `Expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${win} <span class="muted">(${rel})</span>` };
   }
-  if (o.statusDate) return `<div class="when past">${esc(LABEL[o.status])} ${esc(fmtDay(o.statusDate))}</div>`;
-  if (o.expectedStart) return `<div class="when past">Was expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${o.expectedWindow ? ', ' + esc(o.expectedWindow) : ''}</div>`;
-  return '';
+  if (o.statusDate) return { cls: 'past', html: `${esc(LABEL[o.status])} ${esc(fmtDay(o.statusDate))}` };
+  if (o.expectedStart) return { cls: 'past', html: `Was expected ${esc(fmtRange(o.expectedStart, o.expectedEnd))}${o.expectedWindow ? ', ' + esc(o.expectedWindow) : ''}` };
+  return null;
 }
+function whenLine(o) {
+  const e = etaText(o); if (!e) return '';
+  const icn = e.cls === 'late' ? 'alert' : e.cls === 'past' ? ST_ICON[o.status] : 'clock';
+  return `<div class="when ${e.cls}">${ic(icn)}<span>${e.html}</span></div>`;
+}
+function stepper(o) {
+  const i = STEPS.indexOf(o.status); if (i < 0) return '';
+  return `<div class="stepper s${i}" role="img" aria-label="Progress: ${esc(LABEL[o.status])}, step ${i + 1} of 4"><div class="track"><i></i></div><ol>${STEPS.map((k, j) =>
+    `<li class="${j < i ? 'done' : j === i ? 'cur' : ''}"><span class="node">${j < i ? ic('check') : ''}</span><span class="sl">${esc(LABEL[k])}</span></li>`).join('')}</ol></div>`;
+}
+const chip = o => `<button class="chip st-${o.status}" data-act="status" aria-label="Change status: ${esc(LABEL[o.status])}">${esc(LABEL[o.status])}${ic('chevD')}</button>`;
 function card(o) {
   const meta = [];
-  meta.push(`<span>Ordered <b>${o.orderDate ? esc(fmtDay(o.orderDate)) : '—'}</b></span>`);
-  meta.push(`<span><b class="total">${typeof o.total === 'number' ? esc(money.format(o.total)) : 'Total unknown'}</b></span>`);
+  meta.push(`<b class="total">${typeof o.total === 'number' ? esc(money.format(o.total)) : 'Total unknown'}</b>`);
+  meta.push(`<span>Ordered ${o.orderDate ? esc(fmtDay(o.orderDate)) : '—'}</span>`);
   if (o.orderNumber) meta.push(`<span class="onum">#${esc(o.orderNumber)}</span>`);
-  if (o.carrier) meta.push(`<span>via <b>${esc(o.carrier)}</b></span>`);
+  if (o.carrier) meta.push(`<span>via ${esc(o.carrier)}</span>`);
   const nx = NEXT[o.status];
-  return `<article class="order st-${o.status}" data-id="${esc(o.id)}">
-    <div class="ohead"><div class="ret">${esc(o.retailer || 'Unknown retailer')}</div><button class="chip st-${o.status}" data-act="status" aria-label="Change status">${esc(LABEL[o.status])}</button></div>
-    <div class="items${o.items ? '' : ' none'}">${o.items ? esc(o.items) : 'Items not listed'}</div>
+  const nItems = o.lineItems.length;
+  return `<article class="order st-${o.status}${IN_TRANSIT.has(o.status) ? ' transit' : ''}" data-id="${esc(o.id)}">
+    <div class="ohead">${avatar(o.retailer)}<div class="otext"><div class="ret">${esc(o.retailer || 'Unknown retailer')}</div>
+      <div class="items${o.items || nItems ? '' : ' none'}">${o.items ? esc(o.items) : nItems ? esc(o.lineItems.map(x => x.name).join(', ')) : 'Items not listed'}</div></div>${chip(o)}</div>
     ${whenLine(o)}
-    <div class="meta">${meta.join('')}</div>
+    ${IN_TRANSIT.has(o.status) ? stepper(o) : ''}
+    <div class="meta">${meta.join('<i class="dotsep" aria-hidden="true"></i>')}</div>
     ${o.notes ? `<div class="notes">${esc(o.notes)}</div>` : ''}
     <div class="oact">
-      ${isUrl(o.trackingUrl) ? `<a class="track" href="${esc(o.trackingUrl)}" target="_blank" rel="noopener noreferrer">Track</a>` : ''}
-      ${nx ? `<button class="next" data-act="next">Mark ${esc(LABEL[nx].toLowerCase())}</button>` : ''}
-      <button class="edit" data-act="edit">Edit</button>
+      ${isUrl(o.trackingUrl) ? `<a class="track" href="${esc(o.trackingUrl)}" target="_blank" rel="noopener noreferrer">${ic('truck')}Track</a>` : ''}
+      ${nx ? `<button class="next" data-act="next">${ic(ST_ICON[nx])}Mark ${esc(LABEL[nx].toLowerCase())}</button>` : ''}
+      ${IN_TRANSIT.has(o.status) ? '' : `<button class="open" data-act="open">Details${ic('chevR')}</button>`}
+      <button class="edit" data-act="edit" aria-label="Edit order">${ic('edit')}</button>
     </div></article>`;
 }
 function matches(o, q) {
   if (!q) return true;
-  const hay = [o.retailer, o.items, o.orderNumber, o.carrier, o.notes, LABEL[o.status]].join(' ').toLowerCase();
+  const hay = [o.retailer, o.items, o.orderNumber, o.carrier, o.notes, LABEL[o.status], ...(o.lineItems || []).map(x => x.name)].join(' ').toLowerCase();
   return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+}
+const skeleton = () => `<div class="skel" aria-label="Loading your orders" role="status">${[0, 1, 2].map(() => `<div class="skelcard"><div class="sk-row"><span class="sk av"></span><span class="sk-col"><span class="sk l1"></span><span class="sk l2"></span></span></div><span class="sk l3"></span><span class="sk l4"></span></div>`).join('')}</div>`;
+function emptyState(all) {
+  if (all) return `<div class="empty">${ic('search', 'big')}<div class="et">No orders match</div><div class="es">Try a different search or filter.</div><button class="ghost" data-act="clearfilter">Clear search &amp; filter</button></div>`;
+  return `<div class="empty">${ic('inbox', 'big')}<div class="et">No orders yet</div><div class="es">Orders you or Margot add will show up here with their delivery status.</div><button class="ghost" data-act="add">${ic('plus')}Add your first order</button></div>`;
 }
 function renderList() {
   const all = current();
@@ -275,22 +339,117 @@ function renderList() {
   const shown = all.filter(o => (S.filter === 'all' || (S.filter === 'transit' ? IN_TRANSIT.has(o.status) : o.status === S.filter)) && matches(o, S.q));
   const { transit, rest } = sortOrders(shown);
   const activeEl = document.activeElement && document.activeElement.id === 'q';
-  main.innerHTML = `
+  main.innerHTML = `<h1 class="largetitle">Orders</h1>
     <section class="summary" aria-label="Spending">
-      <div class="mnav"><button data-act="mprev" aria-label="Previous month">‹</button>
+      <div class="mnav"><button data-act="mprev" aria-label="Previous month">${ic('chevL')}</button>
         <div class="mcenter"><div class="mlabel">${isNow ? 'Spent this month' : 'Spent in'} · ${MONTH[m - 1]} ${y}</div>
         <div class="mtotal" id="monthTotal">${esc(money.format(sp.total))}</div>
         <div class="msub">${sp.count} order${sp.count === 1 ? '' : 's'}${sp.unknown ? ` · ${sp.unknown} total${sp.unknown === 1 ? '' : 's'} unknown` : ''} · ${counts.transit} on the way</div></div>
-        <button data-act="mnext" aria-label="Next month" ${isNow ? 'disabled' : ''}>›</button></div>
+        <button data-act="mnext" aria-label="Next month" ${isNow ? 'disabled' : ''}>${ic('chevR')}</button></div>
     </section>
-    <input id="q" class="search" type="search" placeholder="Search retailer, item, order #" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search">
-    <div class="filters" role="tablist">${fl.map(([k, l]) => `<button class="fchip${S.filter === k ? ' on' : ''}" data-filter="${k}">${esc(l)}<span class="n">${counts[k] || 0}</span></button>`).join('')}</div>
-    ${!S.loaded ? '<div class="empty">Loading your orders…</div>' : ''}
-    ${S.loaded && !shown.length ? `<div class="empty">${all.length ? 'No orders match.' : 'No orders yet. Tap “+ Add order”.'}</div>` : ''}
-    ${transit.length ? `<h2>On the way <span class="n">${transit.length}</span></h2><div id="transit">${transit.map(card).join('')}</div>` : ''}
-    ${rest.length ? `<h2>Delivered &amp; other <span class="n">${rest.length}</span></h2><div id="rest">${rest.map(card).join('')}</div>` : ''}`;
+    <div class="searchwrap">${ic('search')}<input id="q" class="search" type="search" placeholder="Search retailer, item, order #" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"></div>
+    <div class="filters" role="tablist">${fl.map(([k, l]) => `<button class="fchip${S.filter === k ? ' on' : ''}" data-filter="${k}" role="tab" aria-selected="${S.filter === k}">${esc(l)}<span class="n">${counts[k] || 0}</span></button>`).join('')}</div>
+    ${!S.loaded ? skeleton() : ''}
+    ${S.loaded && !shown.length ? emptyState(all.length) : ''}
+    ${transit.length ? `<h2 class="sechead">On the way <span class="n">${transit.length}</span></h2><div id="transit">${transit.map(card).join('')}</div>` : ''}
+    ${rest.length ? `<h2 class="sechead">Delivered &amp; other <span class="n">${rest.length}</span></h2><div id="rest">${rest.map(card).join('')}</div>` : ''}`;
   if (activeEl) { const q = $('#q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  onScroll();
 }
+
+// ---------- detail view ----------
+const page = $('#page');
+let pageT;
+function timeline(o) {
+  let steps = STEPS.slice();
+  if (o.status === 'cancelled') steps = ['ordered', 'cancelled'];
+  else if (o.status === 'returned' || o.status === 'refunded') steps = [...STEPS, o.status];
+  const idx = steps.indexOf(o.status);
+  const e = etaText(o);
+  return `<ol class="timeline">${steps.map((k, i) => {
+    const state = i < idx ? 'done' : i === idx ? 'cur' : 'todo';
+    let sub = '';
+    if (k === 'ordered') sub = o.orderDate ? fmtDay(o.orderDate, { dow: true }) : 'Order placed';
+    else if (state === 'cur') sub = o.statusDate ? fmtDay(o.statusDate, { dow: true }) : 'Now';
+    else if (state === 'done') sub = 'Done';
+    else if (k === 'delivered') sub = o.expectedStart ? `Expected ${fmtRange(o.expectedStart, o.expectedEnd)}${o.expectedWindow ? ', ' + o.expectedWindow : ''}` : 'No delivery date yet';
+    const desc = state === 'cur' && IN_TRANSIT.has(k) && e ? `<div class="tdesc ${e.cls}">${e.html}</div>` : '';
+    return `<li class="${state} t-${k}"><span class="tnode">${ic(state === 'done' ? 'check' : ST_ICON[k])}</span><div class="tbody"><div class="tl">${esc(LABEL[k])}</div><div class="ts">${esc(sub)}</div>${desc}</div></li>`;
+  }).join('')}</ol>`;
+}
+const row = (label, value, cls = '') => `<div class="row ${cls}"><span class="rl">${label}</span><span class="rv">${value}</span></div>`;
+const linkRow = (icon, label, href, sub = '') => `<a class="row link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${ic(icon, 'ri')}<span class="rl">${label}${sub ? `<small>${esc(sub)}</small>` : ''}</span>${ic('ext', 'rx')}</a>`;
+function renderDetail() {
+  const o = current().find(x => x.id === S.detail);
+  if (!o) return closeDetail();
+  const nx = NEXT[o.status];
+  const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
+  const li = o.lineItems || [];
+  const itemsHtml = li.length ? li.map(x => {
+    const name = `<span class="iname">${x.qty > 1 ? `<b class="qty">${esc(x.qty)}×</b> ` : ''}${esc(x.name)}</span>`;
+    const price = typeof x.price === 'number' ? `<span class="iprice">${esc(fmtMoney(x.price * (x.qty || 1)))}${x.qty > 1 ? `<small>${esc(fmtMoney(x.price))} each</small>` : ''}</span>` : '';
+    return isUrl(x.url) ? `<a class="row item link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${name}${price}${ic('chevR', 'rx')}</a>` : `<div class="row item">${name}${price}</div>`;
+  }).join('') : `<div class="row item"><span class="iname${o.items ? '' : ' muted'}">${o.items ? esc(o.items) : 'Items not listed'}</span></div>`;
+  const rc = [['Subtotal', o.subtotal], ['Shipping', o.shipping], ['Tax', o.tax]].filter(([, v]) => typeof v === 'number');
+  const pay = o.paymentBrand || o.paymentLast4 ? `<div class="row">${ic('card', 'ri')}<span class="rl">${esc(o.paymentBrand || 'Card')}</span><span class="rv mono">${o.paymentLast4 ? '•••• ' + esc(o.paymentLast4) : ''}</span></div>` : '';
+  const del = [];
+  if (o.carrier) del.push(row('Carrier', esc(o.carrier)));
+  if (o.expectedStart) del.push(row(IN_TRANSIT.has(o.status) ? 'Expected' : 'Was expected', esc(fmtRange(o.expectedStart, o.expectedEnd))));
+  if (o.expectedWindow) del.push(row('Time window', esc(o.expectedWindow)));
+  if (o.statusDate && !IN_TRANSIT.has(o.status)) del.push(row(esc(LABEL[o.status]), esc(fmtDay(o.statusDate, { dow: true }))));
+  if (o.shipAddress) del.push(`<div class="row addr">${ic('pin', 'ri')}<span class="rl">Ship to<small>${esc(o.shipAddress)}</small></span></div>`);
+  if (isUrl(o.trackingUrl)) del.push(linkRow('truck', 'Track package', o.trackingUrl, host(o.trackingUrl)));
+  const links = [];
+  if (isUrl(o.productUrl)) links.push(linkRow('tag', 'View product', o.productUrl, host(o.productUrl)));
+  if (isUrl(o.emailLink)) links.push(linkRow('mail', 'Order confirmation email', o.emailLink, host(o.emailLink)));
+  const e = etaText(o);
+  const scroll = page.querySelector('.pscroll'); const keep = scroll && page.dataset.id === o.id ? scroll.scrollTop : 0;
+  page.dataset.id = o.id;
+  page.innerHTML = `<div class="pnav"><button class="navback" data-act="detailback" aria-label="Back to orders">${ic('chevL')}<span>Orders</span></button>
+      <div class="ptitle">${esc(o.retailer)}</div><button class="navbtn" data-act="edit">Edit</button></div>
+    <div class="pscroll"><div class="pinner" id="detail">
+      <div class="hero">${avatar(o.retailer, true)}<h1 class="dret">${esc(o.retailer || 'Unknown retailer')}</h1>
+        <div class="dsub">${o.orderNumber ? `<span class="onum">#${esc(o.orderNumber)}</span>` : ''}${o.orderDate ? `<span>Ordered ${esc(fmtDay(o.orderDate))}</span>` : ''}</div>
+        ${chip(o)}
+        <div class="dtotal total">${typeof o.total === 'number' ? esc(money.format(o.total)) : 'Total unknown'}</div>
+        ${e && e.cls !== 'past' ? `<div class="when ${e.cls}">${ic(e.cls === 'late' ? 'alert' : 'clock')}<span>${e.html}</span></div>` : ''}
+      </div>
+      <div class="quick">
+        ${isUrl(o.trackingUrl) ? `<a class="qa track" href="${esc(o.trackingUrl)}" target="_blank" rel="noopener noreferrer">${ic('truck')}<span>Track</span></a>` : ''}
+        ${nx ? `<button class="qa next" data-act="next">${ic(ST_ICON[nx])}<span>Mark ${esc(LABEL[nx].toLowerCase())}</span></button>` : ''}
+        ${isUrl(o.emailLink) ? `<a class="qa" href="${esc(o.emailLink)}" target="_blank" rel="noopener noreferrer">${ic('mail')}<span>Email</span></a>` : ''}
+        <button class="qa" data-act="status">${ic('chevD')}<span>Status</span></button>
+      </div>
+      <div class="ghead">Status</div><div class="group pad" id="d-timeline">${timeline(o)}</div>
+      <div class="ghead">Items${li.length ? ` <span class="n">${li.reduce((s, x) => s + (x.qty || 1), 0)}</span>` : ''}</div><div class="group" id="d-items">${itemsHtml}</div>
+      <div class="ghead">Receipt</div><div class="group" id="d-receipt">${rc.map(([l, v]) => row(l, esc(fmtMoney(v)))).join('')}${row('Total', typeof o.total === 'number' ? esc(money.format(o.total)) : 'Unknown', 'strong')}</div>
+      ${pay ? `<div class="ghead">Payment</div><div class="group" id="d-payment">${pay}</div>` : ''}
+      ${del.length ? `<div class="ghead">Delivery</div><div class="group" id="d-delivery">${del.join('')}</div>` : ''}
+      ${links.length ? `<div class="ghead">Links</div><div class="group" id="d-links">${links.join('')}</div>` : ''}
+      ${o.notes ? `<div class="ghead">Notes</div><div class="group pad notesbox">${esc(o.notes)}</div>` : ''}
+      <div class="group mt"><button class="row act" data-act="edit">${ic('edit', 'ri')}<span class="rl">Edit order</span>${ic('chevR', 'rx')}</button></div>
+      <p class="foot">${o.updatedAt ? 'Updated ' + esc(ago(Date.parse(o.updatedAt))) : ''}</p>
+    </div></div>`;
+  const sc = page.querySelector('.pscroll'); sc.scrollTop = keep;
+  sc.addEventListener('scroll', () => page.classList.toggle('compact', sc.scrollTop > 70), { passive: true });
+  page.classList.toggle('compact', keep > 70);
+}
+function openDetail(id) {
+  clearTimeout(pageT);
+  S.detail = id; page.dataset.id = ''; renderDetail();
+  page.hidden = false; document.body.classList.add('paged');
+  if (!history.state || history.state.detail !== id) history.pushState({ detail: id }, '');
+  requestAnimationFrame(() => requestAnimationFrame(() => page.classList.add('in')));
+  buzz(6);
+}
+function closeDetail(fromPop) {
+  if (!S.detail) return;
+  S.detail = null; page.classList.remove('in'); document.body.classList.remove('paged');
+  clearTimeout(pageT); pageT = setTimeout(() => { if (!S.detail) { page.hidden = true; page.innerHTML = ''; } }, reduced() ? 0 : 420);
+  if (!fromPop && history.state && history.state.detail) history.back();
+}
+window.addEventListener('popstate', () => { if (!sheet.hidden) closeSheet(); if (S.detail) closeDetail(true); });
+
 function tokenSteps(withLink) {
   return `<ol class="steps">
     <li>Open ${withLink ? `<a href="${TOKEN_URL}" target="_blank" rel="noopener noreferrer">GitHub’s new fine-grained token page</a>` : 'the GitHub page (button above)'} and sign in as <b>braydendueck</b>. The name, a 90-day expiry and the Contents permission are filled in for you.</li>
@@ -302,10 +461,10 @@ function tokenSteps(withLink) {
 }
 function renderSetup() {
   renderChrome(); $('#addbar').hidden = true; document.body.classList.add('noadd');
-  main.innerHTML = `<div class="setup" id="setup">
-    <div class="card"><h3>Connect your order list</h3>
+  main.innerHTML = `<h1 class="largetitle">Connect</h1><div class="setup" id="setup">
+    <div class="card"><div class="setupicon">${ic('box')}</div><h3>Connect your order list</h3>
       <p class="lead">Your orders are kept in your private GitHub repo <b>${esc(S.repo)}</b>. To let this phone read and update them, paste a GitHub access token once.</p>
-      <a class="linkbtn" href="${TOKEN_URL}" target="_blank" rel="noopener noreferrer">Create the token on GitHub ↗</a>
+      <a class="linkbtn" href="${TOKEN_URL}" target="_blank" rel="noopener noreferrer">Create the token on GitHub ${ic('ext')}</a>
       ${tokenSteps(false)}
       <form id="tokform" autocomplete="off">
         <label class="field"><span>Paste the token here</span><input id="tok" type="password" placeholder="github_pat_…" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
@@ -314,6 +473,7 @@ function renderSetup() {
         <button class="primary" id="tokgo" type="submit">Connect</button>
         ${S.pending.length ? `<p class="small muted">${S.pending.length} unsaved change(s) on this phone will save after you connect.</p>` : ''}
       </form></div></div>`;
+  onScroll();
   $('#tokform').addEventListener('submit', async e => {
     e.preventDefault();
     const tok = $('#tok').value.trim(), repo = ($('#repo').value.trim() || DEFAULT_REPO).replace(/^https:\/\/github\.com\//, '').replace(/\/$/, '');
@@ -329,7 +489,7 @@ function renderSetup() {
       if (!sameRepo) S.pending = [];
       S.base = r.data; S.sha = r.sha; S.syncedAt = Date.now(); S.loaded = true; S.problem = null; S.net = 'idle'; S.view = 'list'; persist();
       if (S.pending.length) await sync(); else render();
-      toast('Connected');
+      buzz(); toast('Connected');
     } catch (ex) {
       err.textContent = ex.kind === 'auth' ? 'GitHub rejected this token. Check you copied all of it and that it has not expired.' : ex.message;
       err.hidden = false; go.disabled = false; go.textContent = 'Connect';
@@ -337,93 +497,202 @@ function renderSetup() {
   });
 }
 function renderSettings() {
-  main.innerHTML = `<div class="card" id="settings"><h3>Sync</h3>
-      <div class="kv"><span class="muted">Data repo</span><span>${esc(S.repo)} (private)</span></div>
-      <div class="kv"><span class="muted">Last synced</span><span>${esc(ago(S.syncedAt))}</span></div>
-      <div class="kv"><span class="muted">Unsaved changes</span><span>${S.pending.length}</span></div>
-      <div class="kv"><span class="muted">Orders</span><span>${current().length}</span></div>
-      <button class="secondary" data-act="retry">Refresh now</button>
-      <button class="secondary" data-act="back">Back to orders</button></div>
-    <div class="card"><h3>Token</h3><p class="small muted">Replace the token when it expires, or sign out to remove the token and the saved copy of your orders from this device.</p>
-      <button class="secondary" data-act="newtoken">Enter a new token</button>
-      <button class="dangerbtn" id="signout" data-act="signout">Sign out / forget token</button>
-      <details><summary>How to create a token</summary>${tokenSteps(true)}</details></div>
-    <p class="small muted">Order Tracker · data never leaves your GitHub and this device.</p>`;
+  main.innerHTML = `<h1 class="largetitle">Settings</h1><div id="settings">
+    <div class="ghead">Sync</div><div class="group">
+      ${row('Data repo', `${esc(S.repo)} <small>(private)</small>`)}
+      ${row('Last synced', esc(ago(S.syncedAt)))}
+      ${row('Unsaved changes', S.pending.length)}
+      ${row('Orders', current().length)}
+      <button class="row act" data-act="retry"><span class="rl acc">Refresh now</span></button>
+      <button class="row act" data-act="back"><span class="rl acc">Back to orders</span></button></div>
+    <div class="ghead">Token</div><div class="group">
+      <div class="row wrap"><span class="rl muted small">Replace the token when it expires, or sign out to remove the token and the saved copy of your orders from this device.</span></div>
+      <button class="row act" data-act="newtoken"><span class="rl acc">Enter a new token</span></button>
+      <button class="row act" id="signout" data-act="signout"><span class="rl danger">Sign out / forget token</span></button></div>
+    <div class="group mt pad"><details><summary>How to create a token</summary>${tokenSteps(true)}</details></div>
+    <p class="foot">Order Tracker · data never leaves your GitHub and this device.</p></div>`;
+  onScroll();
 }
 
 // ---------- sheets ----------
 const sheet = $('#sheet');
-function openSheet(html, full) { sheet.innerHTML = `<div class="sheet${full ? ' full' : ''}" role="dialog" aria-modal="true">${html}</div>`; sheet.hidden = false; document.body.classList.add('locked'); }
-function closeSheet() { sheet.hidden = true; sheet.innerHTML = ''; document.body.classList.remove('locked'); }
+let sheetT;
+function openSheet(html, full) {
+  clearTimeout(sheetT);
+  sheet.innerHTML = `<div class="sheet${full ? ' full' : ''}" role="dialog" aria-modal="true"><div class="grabber" data-grab aria-hidden="true"><i></i></div>${html}</div>`;
+  sheet.hidden = false; sheet.classList.remove('in', 'closing'); document.body.classList.add('locked');
+  requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add('in')));
+}
+function closeSheet() {
+  if (sheet.hidden) return;
+  sheet.classList.remove('in'); sheet.classList.add('closing'); document.body.classList.remove('locked');
+  const s = sheet.querySelector('.sheet'); if (s) s.style.transform = '';
+  clearTimeout(sheetT); sheetT = setTimeout(() => { sheet.hidden = true; sheet.innerHTML = ''; sheet.classList.remove('closing'); }, reduced() ? 0 : 320);
+}
 function statusSheet(id) {
   const o = current().find(x => x.id === id); if (!o) return;
-  openSheet(`<div class="shead"><h3>${esc(o.retailer)}: set status</h3><button class="iconbtn" data-act="close" aria-label="Close">✕</button></div>
-    <div class="stlist">${STATUSES.map(([k, l]) => `<button class="stbtn st-${k}${o.status === k ? ' cur' : ''}" data-setstatus="${k}" data-id="${esc(id)}"><span class="dot"></span>${esc(l)}</button>`).join('')}</div>`);
+  openSheet(`<div class="shead"><h3>${esc(o.retailer)}<small>Set status</small></h3><button class="iconbtn sm" data-act="close" aria-label="Close">${ic('x')}</button></div>
+    <div class="stlist group">${STATUSES.map(([k, l]) => `<button class="stbtn st-${k}${o.status === k ? ' cur' : ''}" data-setstatus="${k}" data-id="${esc(id)}"><span class="dot">${ic(ST_ICON[k])}</span>${esc(l)}${o.status === k ? ic('check', 'tick') : ''}</button>`).join('')}</div>`);
 }
+const liRow = (x = {}) => `<div class="lirow"><input name="li_name" placeholder="Item name" value="${esc(x.name || '')}" aria-label="Item name">
+  <div class="li2"><label><span>Qty</span><input name="li_qty" inputmode="numeric" value="${esc(x.qty || 1)}" aria-label="Quantity"></label><label><span>Price each</span><input name="li_price" inputmode="decimal" placeholder="—" value="${typeof x.price === 'number' ? x.price.toFixed(2) : ''}" aria-label="Price each"></label>
+  <button type="button" class="iconbtn sm" data-act="rmline" aria-label="Remove item">${ic('x')}</button></div>
+  <input name="li_url" type="url" inputmode="url" placeholder="https://product link (optional)" value="${esc(x.url || '')}" autocapitalize="off" spellcheck="false" aria-label="Product link"></div>`;
 function formSheet(id) {
   const o = id ? current().find(x => x.id === id) : normalize({ status: 'ordered', orderDate: today() });
   if (!o) return;
   const retailers = [...new Set(current().map(x => x.retailer).filter(Boolean))];
-  const f = (k, label, attrs = '') => `<label class="field" data-f="${k}"><span>${label}</span><input name="${k}" value="${esc(o[k] == null ? '' : o[k])}" ${attrs}></label>`;
-  openSheet(`<form id="oform" novalidate><div class="shead"><h3>${id ? 'Edit order' : 'Add order'}</h3><button type="button" class="iconbtn" data-act="close" aria-label="Close">✕</button></div>
+  const val = k => MONEY.has(k) && typeof o[k] === 'number' ? String(o[k]) : (o[k] == null ? '' : o[k]);
+  const f = (k, label, attrs = '') => `<label class="field" data-f="${k}"><span>${label}</span><input name="${k}" value="${esc(val(k))}" ${attrs}></label>`;
+  openSheet(`<form id="oform" novalidate><div class="shead"><button type="button" class="textbtn" data-act="close">Cancel</button><h3>${id ? 'Edit order' : 'Add order'}</h3><button type="button" class="textbtn strong" data-act="submitform">${id ? 'Save' : 'Add'}</button></div>
+    <div class="ghead">Order</div>
     ${f('retailer', 'Retailer *', 'list="dl-ret" autocapitalize="words" required')}
-    <label class="field"><span>Items</span><textarea name="items" rows="2">${esc(o.items)}</textarea></label>
+    <label class="field"><span>Items (summary on the card)</span><textarea name="items" rows="2">${esc(o.items)}</textarea></label>
     <div class="row2">${f('orderDate', 'Order date', 'type="date"')}${f('total', 'Total (CAD)', 'inputmode="decimal" placeholder="Unknown"')}</div>
     ${f('orderNumber', 'Order number', 'autocapitalize="off" spellcheck="false"')}
     <label class="field"><span>Status</span><select name="status">${STATUSES.map(([k, l]) => `<option value="${k}"${o.status === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    <div class="ghead">Delivery</div>
     ${f('carrier', 'Carrier', 'list="dl-car"')}
     ${f('trackingUrl', 'Tracking link', 'type="url" inputmode="url" placeholder="https://…" autocapitalize="off" spellcheck="false"')}
     <div class="row2">${f('expectedStart', 'Expected delivery', 'type="date"')}${f('expectedEnd', 'Latest (if a range)', 'type="date"')}</div>
     ${f('expectedWindow', 'Time window', 'placeholder="e.g. 4:01–5:31 PM"')}
     ${f('statusDate', 'Delivered / picked up / cancelled on', 'type="date"')}
+    <label class="field" data-f="shipAddress"><span>Ship to</span><textarea name="shipAddress" rows="2" placeholder="Name, street, city">${esc(o.shipAddress)}</textarea></label>
+    <div class="ghead">Line items</div>
+    <div id="lirows" data-f="lineItems">${o.lineItems.map(liRow).join('')}</div>
+    <button type="button" class="ghost full" data-act="addline">${ic('plus')}Add line item</button>
+    <div class="ghead">Receipt</div>
+    <div class="row3">${f('subtotal', 'Subtotal', 'inputmode="decimal" placeholder="—"')}${f('shipping', 'Shipping', 'inputmode="decimal" placeholder="—"')}${f('tax', 'Tax', 'inputmode="decimal" placeholder="—"')}</div>
+    <div class="ghead">Payment</div>
+    <div class="row2">${f('paymentBrand', 'Card / method', 'list="dl-brand"')}${f('paymentLast4', 'Last 4 digits', 'inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off"')}</div>
+    <p class="hint">Only the last 4 digits. Never enter a full card number.</p>
+    <div class="ghead">Links</div>
+    ${f('productUrl', 'Product page', 'type="url" inputmode="url" placeholder="https://…" autocapitalize="off" spellcheck="false"')}
+    ${f('emailLink', 'Confirmation email link', 'type="url" inputmode="url" placeholder="https://mail.google.com/…" autocapitalize="off" spellcheck="false"')}
+    <div class="ghead">Notes</div>
     <label class="field"><span>Notes</span><textarea name="notes" rows="2">${esc(o.notes)}</textarea></label>
     <div id="formerr" class="err" hidden></div>
     <button class="primary" type="submit">${id ? 'Save changes' : 'Add order'}</button>
     <button class="secondary" type="button" data-act="close">Cancel</button>
     ${id ? `<button class="dangerbtn" type="button" data-act="delete" data-id="${esc(id)}">Delete order</button>` : ''}
     <datalist id="dl-ret">${retailers.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
-    <datalist id="dl-car">${CARRIERS.map(r => `<option value="${esc(r)}">`).join('')}</datalist></form>`, true);
+    <datalist id="dl-car">${CARRIERS.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+    <datalist id="dl-brand">${BRANDS.map(r => `<option value="${esc(r)}">`).join('')}</datalist></form>`, true);
   $('#oform').addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(e.target), v = {};
-    for (const k of FIELDS) v[k] = String(fd.get(k) == null ? '' : fd.get(k)).trim();
+    for (const k of FIELDS) if (k !== 'lineItems') v[k] = String(fd.get(k) == null ? '' : fd.get(k)).trim();
     const errs = [];
-    sheet.querySelectorAll('.field.bad').forEach(x => x.classList.remove('bad'));
-    const bad = (k, m) => { errs.push(m); const el = sheet.querySelector(`[data-f="${k}"]`); if (el) el.classList.add('bad'); };
+    sheet.querySelectorAll('.bad').forEach(x => x.classList.remove('bad'));
+    const bad = (k, m, el) => { errs.push(m); el = el || sheet.querySelector(`[data-f="${k}"]`); if (el) el.classList.add('bad'); };
     if (!v.retailer) bad('retailer', 'Retailer is required.');
-    v.total = parseTotal(v.total); if (Number.isNaN(v.total)) bad('total', 'Total should be a number like 49.99, or blank if unknown.');
+    for (const k of MONEY) { v[k] = parseTotal(v[k]); if (Number.isNaN(v[k])) bad(k, `${k === 'total' ? 'Total' : k[0].toUpperCase() + k.slice(1)} should be a number like 49.99, or blank if unknown.`); }
     if (v.trackingUrl && !isUrl(v.trackingUrl)) bad('trackingUrl', 'Tracking link should start with https://');
+    for (const [k, l] of [['productUrl', 'Product page'], ['emailLink', 'Email link']]) if (v[k] && !/^https:\/\/\S+$/i.test(v[k])) bad(k, `${l} should start with https://`);
+    const digits = v.paymentLast4.replace(/\D/g, '');
+    if (digits.length > 4) bad('paymentLast4', 'Only enter the last 4 digits of the card.');
+    else if (v.paymentLast4 && !/^\d{4}$/.test(v.paymentLast4)) bad('paymentLast4', 'Last 4 should be exactly 4 digits.');
+    for (const k of ['paymentBrand', 'shipAddress', 'notes', 'items']) if (/\d{13,19}/.test(v[k].replace(/[\s-]/g, ''))) bad(k, 'That looks like a full card number. Only store the last 4 digits.');
+    v.lineItems = [];
+    sheet.querySelectorAll('.lirow').forEach(r => {
+      const g = n => r.querySelector(`[name=${n}]`).value.trim();
+      const name = g('li_name'), qs = g('li_qty'), ps = g('li_price'), url = g('li_url');
+      if (!name && !ps && !url) return;
+      const it = { name, qty: qs === '' ? 1 : Number(qs), price: parseTotal(ps), url };
+      if (!name) bad('', 'Each line item needs a name.', r);
+      if (!Number.isInteger(it.qty) || it.qty < 1) bad('', `“${name}”: quantity should be a whole number.`, r);
+      if (Number.isNaN(it.price)) bad('', `“${name}”: price should be a number like 19.99.`, r);
+      if (url && !/^https:\/\/\S+$/i.test(url)) bad('', `“${name}”: product link should start with https://`, r);
+      v.lineItems.push(it);
+    });
     if (v.expectedEnd && !v.expectedStart) { v.expectedStart = v.expectedEnd; v.expectedEnd = ''; }
     if (v.expectedEnd && v.expectedEnd < v.expectedStart) bad('expectedEnd', 'Latest date is before the expected date.');
     if (v.expectedEnd === v.expectedStart) v.expectedEnd = '';
-    if (errs.length) { const fe = $('#formerr'); fe.textContent = errs.join(' '); fe.hidden = false; return; }
+    if (errs.length) { const fe = $('#formerr'); fe.textContent = errs.join(' '); fe.hidden = false; fe.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' }); buzz([8, 40, 8]); return; }
+    const same = (a, b) => JSON.stringify(a == null ? '' : a) === JSON.stringify(b == null ? '' : b);
     if (id) {
-      const diff = {}; for (const k of FIELDS) if ((o[k] == null ? '' : o[k]) !== (v[k] == null ? '' : v[k])) diff[k] = v[k];
+      const diff = {}; for (const k of FIELDS) if (!same(o[k], v[k])) diff[k] = v[k];
       if (diff.status && !('statusDate' in diff) && !IN_TRANSIT.has(diff.status) && !o.statusDate) diff.statusDate = today();
       closeSheet();
-      if (Object.keys(diff).length) { change(id, diff); toast('Saved'); }
+      if (Object.keys(diff).length) { change(id, diff); buzz(); toast('Saved'); }
     } else {
       if (!IN_TRANSIT.has(v.status) && !v.statusDate) v.statusDate = today();
-      closeSheet(); change(uid(), v, { create: true }); toast('Order added');
+      closeSheet(); change(uid(), v, { create: true }); buzz(); toast('Order added');
     }
   });
 }
+// drag the grabber down to dismiss a sheet
+let drag = null;
+sheet.addEventListener('touchstart', e => {
+  const s = sheet.querySelector('.sheet'); if (!s) return;
+  if (!e.target.closest('[data-grab],.shead') && s.scrollTop > 0) return;
+  if (!e.target.closest('[data-grab],.shead')) return;
+  drag = { y: e.touches[0].clientY, s, d: 0 };
+}, { passive: true });
+sheet.addEventListener('touchmove', e => {
+  if (!drag) return; drag.d = Math.max(0, e.touches[0].clientY - drag.y);
+  drag.s.style.transition = 'none'; drag.s.style.transform = `translateY(${drag.d}px)`;
+}, { passive: true });
+sheet.addEventListener('touchend', () => {
+  if (!drag) return; const { s, d } = drag; drag = null; s.style.transition = '';
+  if (d > 90) closeSheet(); else s.style.transform = '';
+});
+
+// ---------- large title / pull to refresh ----------
+const nav = $('#nav');
+let ticking = false;
+function onScroll() { if (ticking) return; ticking = true; requestAnimationFrame(() => { ticking = false; nav.classList.toggle('compact', window.scrollY > 36); }); }
+window.addEventListener('scroll', onScroll, { passive: true });
+const ptrEl = $('#ptr');
+let pull = null;
+window.addEventListener('touchstart', e => {
+  if (!S.token || S.view !== 'list' || !sheet.hidden || S.detail || window.scrollY > 0 || S.net === 'loading') return;
+  pull = { y: e.touches[0].clientY, d: 0 };
+}, { passive: true });
+window.addEventListener('touchmove', e => {
+  if (!pull) return;
+  const dy = e.touches[0].clientY - pull.y;
+  if (dy <= 0 || window.scrollY > 0) { pull.d = 0; ptrEl.style.transform = ''; ptrEl.classList.remove('show', 'armed'); return; }
+  if (e.cancelable && dy > 8) e.preventDefault();
+  pull.d = Math.min(dy * 0.5, 96);
+  ptrEl.classList.add('show'); ptrEl.style.transform = `translate(-50%, ${pull.d}px) rotate(${pull.d * 4}deg)`;
+  const armed = pull.d >= 64; if (armed && !ptrEl.classList.contains('armed')) buzz(8);
+  ptrEl.classList.toggle('armed', armed);
+}, { passive: false });
+window.addEventListener('touchend', () => {
+  if (!pull) return; const go = pull.d >= 64; pull = null;
+  if (!go) { ptrEl.style.transform = ''; ptrEl.classList.remove('show', 'armed'); return; }
+  ptrEl.classList.add('spin'); ptrEl.style.transform = 'translate(-50%, 60px)';
+  refresh().finally(() => { ptrEl.classList.remove('spin', 'show', 'armed'); ptrEl.style.transform = ''; });
+});
 
 // ---------- events ----------
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-act],[data-filter],[data-setstatus]'); if (!t) { if (e.target === sheet) closeSheet(); return; }
-  if (t.dataset.filter) { S.filter = t.dataset.filter; return render(); }
+  const t = e.target.closest('[data-act],[data-filter],[data-setstatus]');
+  if (!t) {
+    if (e.target === sheet) return closeSheet();
+    const oc = e.target.closest('.order'); if (oc && !e.target.closest('a')) openDetail(oc.dataset.id);
+    return;
+  }
+  if (t.dataset.filter) { S.filter = t.dataset.filter; buzz(4); return render(); }
   if (t.dataset.setstatus) { closeSheet(); return setStatus(t.dataset.id, t.dataset.setstatus); }
   const act = t.dataset.act, holder = t.closest('[data-id]'), id = holder ? holder.dataset.id : null;
+  if (act === 'open') return openDetail(id);
+  if (act === 'detailback') return closeDetail();
   if (act === 'status') return statusSheet(id);
   if (act === 'next') { const o = current().find(x => x.id === id); return o && setStatus(id, NEXT[o.status]); }
   if (act === 'edit') return formSheet(id);
+  if (act === 'add') return formSheet(null);
   if (act === 'close') return closeSheet();
-  if (act === 'delete') { if (confirm('Delete this order?')) { closeSheet(); remove(t.dataset.id); toast('Deleted'); } return; }
-  if (act === 'mprev' || act === 'mnext') { const [y, m] = S.month.split('-').map(Number); const d = new Date(y, m - 1 + (act === 'mprev' ? -1 : 1), 1); S.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; return render(); }
+  if (act === 'submitform') return $('#oform').requestSubmit();
+  if (act === 'addline') { const box = $('#lirows'); box.insertAdjacentHTML('beforeend', liRow()); box.lastElementChild.querySelector('input').focus(); return; }
+  if (act === 'rmline') { t.closest('.lirow').remove(); return; }
+  if (act === 'clearfilter') { S.filter = 'all'; S.q = ''; return render(); }
+  if (act === 'delete') { if (confirm('Delete this order?')) { closeSheet(); if (S.detail === t.dataset.id) closeDetail(); remove(t.dataset.id); buzz(20); toast('Deleted'); } return; }
+  if (act === 'mprev' || act === 'mnext') { const [y, m] = S.month.split('-').map(Number); const d = new Date(y, m - 1 + (act === 'mprev' ? -1 : 1), 1); S.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; buzz(4); return render(); }
   if (act === 'retry') return refresh();
   if (act === 'back') { S.view = 'list'; return render(); }
-  if (act === 'newtoken') { S.view = 'setup'; return render(); }
+  if (act === 'newtoken') { S.view = 'setup'; closeDetail(); return render(); }
   if (act === 'signout') {
     const n = S.pending.length;
     if (!confirm(n ? `${n} change(s) have not been saved to GitHub yet and will be lost. Sign out anyway?` : 'Forget the token and the saved copy of your orders on this device?')) return;
@@ -433,10 +702,10 @@ document.addEventListener('click', e => {
   }
 });
 $('#btnAdd').addEventListener('click', () => formSheet(null));
-$('#btnRefresh').addEventListener('click', () => refresh());
+$('#btnRefresh').addEventListener('click', () => { buzz(6); refresh(); });
 $('#btnSettings').addEventListener('click', () => { S.view = S.view === 'settings' ? 'list' : 'settings'; render(); window.scrollTo(0, 0); });
 main.addEventListener('input', e => { if (e.target.id === 'q') { S.q = e.target.value; renderList(); } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!sheet.hidden) closeSheet(); else if (S.detail) closeDetail(); } });
 window.addEventListener('online', () => refresh());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.token && Date.now() - (S.syncedAt || 0) > 60e3) refresh(); });
 
